@@ -1,0 +1,5 @@
+{
+  "name": "Evalify - Automated OMR Evaluation System",
+  "description": "An automated OMR evaluation system that uses AI to accurately evaluate OMR sheets from images. It provides per-subject scores, a total score, and an analytics dashboard for evaluators.",
+  "requestFramePermissions": []
+}
