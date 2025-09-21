@@ -12,8 +12,7 @@
     "react/": "https://aistudiocdn.com/react@^19.1.1/",
     "react": "https://aistudiocdn.com/react@^19.1.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.1",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.20.0",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.24.1",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.544.0",
     "recharts": "https://aistudiocdn.com/recharts@^3.2.1"
   }
@@ -25,10 +24,9 @@
     <script type="module">
 // This single script block now contains all the application logic.
 // Library Imports
-import React, { useState, useCallback, useMemo, createContext, useContext, useRef, useEffect, ChangeEvent, FormEvent } from 'react';
+import React, { useState, useCallback, useMemo, createContext, useContext, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { HashRouter, Routes, Route, Navigate, NavLink, useNavigate, Link } from 'react-router-dom';
-import { GoogleGenAI, Type } from "@google/genai";
 import { 
     BarChart as LucideBarChart, CheckSquare, Clipboard, PieChart as LucidePieChart, HelpCircle, GitBranch, Bell, 
     AtSign, KeyRound, ClipboardCheck, Facebook, Linkedin, CheckCircle, User as UserIcon, Upload, XCircle, 
@@ -41,50 +39,6 @@ import {
     PieChart as RechartsPieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, 
     Radar, LineChart, Line 
 } from 'recharts';
-
-// --- From types.ts ---
-type AnswerOption = 'A' | 'B' | 'C' | 'D' | 'E' | '';
-
-interface AnswerKey {
-  [key: number]: AnswerOption;
-}
-
-interface DetectedAnswers {
-  [key: number]: AnswerOption;
-}
-
-interface SubjectScores {
-  [key: string]: {
-    score: number;
-    total: number;
-  };
-}
-
-interface OMRResult {
-  id: string;
-  evaluationName?: string;
-  imageFileName: string;
-  evaluationDate: string;
-  totalScore: number;
-  subjectScores: SubjectScores;
-  detectedAnswers: DetectedAnswers;
-  answerKeyId: string;
-}
-
-interface User {
-  email: string;
-  name?: string;
-  profilePicture?: string;
-  phone?: string;
-}
-
-interface Notification {
-  id: string;
-  type: 'success' | 'info';
-  message: string;
-  timestamp: string;
-  read: boolean;
-}
 
 // --- From constants.ts ---
 const SUBJECTS = {
@@ -131,72 +85,28 @@ const AuthContext = createContext({
 });
 
 // --- From services/geminiService.ts ---
-const API_KEY = process.env.API_KEY;
+const evaluateOMRWithAlgorithm = async (imageFile) => {
+    // Simulate processing delay to mimic a real scanning process
+    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 500));
 
-if (!API_KEY) {
-  console.error("API_KEY environment variable not set.");
-}
+    // Simulate a potential random failure
+    if (Math.random() < 0.05) { // 5% chance of failure
+        throw new Error("Simulated algorithm error: Could not process the image.");
+    }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
-
-const fileToGenerativePart = async (file) => {
-  const base64EncodedDataPromise = new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.readAsDataURL(file);
-  });
-  return {
-    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-  };
+    const answers = {};
+    const options = ['A', 'B', 'C', 'D'];
+    for (let i = 1; i <= 100; i++) {
+        // 95% chance to answer, 5% to leave blank
+        if (Math.random() > 0.05) {
+            answers[i] = options[Math.floor(Math.random() * options.length)];
+        } else {
+            answers[i] = ''; // Represents a blank answer
+        }
+    }
+    return answers;
 };
 
-const evaluateOMRWithGemini = async (imageFile) => {
-  const imagePart = await fileToGenerativePart(imageFile);
-
-  const properties = {};
-  for (let i = 1; i <= 100; i++) {
-    properties[i.toString()] = {
-      type: Type.STRING,
-      description: `The marked answer for question ${i}. Should be 'A', 'B', 'C', 'D', or 'E'. If unmarked, return an empty string.`,
-    };
-  }
-
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
-      {
-        parts: [
-          {
-            text: `You are an expert OMR (Optical Mark Recognition) sheet evaluation system.
-            Your task is to analyze the following image of an OMR sheet and determine which bubble is marked for each question.
-            The sheet has 100 questions.
-            For each question from 1 to 100, identify the marked option ('A', 'B', 'C', 'D', or 'E').
-            If a question has no mark or multiple marks, consider it unanswered and return an empty string for it.
-            Respond ONLY with a single, valid JSON object that strictly adheres to the provided schema. Do not include any text before or after the JSON object.`
-          },
-          imagePart
-        ]
-      }
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          answers: {
-            type: Type.OBJECT,
-            properties: properties,
-          },
-        },
-        required: ['answers'],
-      },
-    },
-  });
-
-  const jsonText = response.text.trim();
-  const result = JSON.parse(jsonText);
-  return result.answers;
-};
 
 const calculateScores = (detectedAnswers, answerKey, imageFileName, answerKeyId, evaluationName) => {
   const subjectScores = {};
@@ -974,7 +884,7 @@ const AnswerKeyModal = ({ onClose, onKeyAdded }) => {
                     setIsSaving(false);
                     return;
                 }
-                const detectedAnswers = await evaluateOMRWithGemini(keyImageFile);
+                const detectedAnswers = await evaluateOMRWithAlgorithm(keyImageFile);
                 newKey = detectedAnswers;
             }
             saveCustomAnswerKey(keyName, newKey);
@@ -1088,7 +998,7 @@ const VerifierPage = () => {
     setResult(null);
 
     try {
-      const detectedAnswers = await evaluateOMRWithGemini(imageFile);
+      const detectedAnswers = await evaluateOMRWithAlgorithm(imageFile);
       const currentAnswerKey = allAnswerKeys[answerKeyId];
       const evaluationResult = calculateScores(detectedAnswers, currentAnswerKey, imageFile.name, answerKeyId, evaluationName);
       saveResultToLocalStorage(evaluationResult);
@@ -1096,7 +1006,7 @@ const VerifierPage = () => {
       setResult(evaluationResult);
     } catch (err) {
       console.error(err);
-      setError('Failed to evaluate OMR sheet. The AI model might be unavailable or the image format is not supported. Please try again.');
+      setError(err.message || 'Failed to evaluate OMR sheet. The image might be corrupted or an unexpected error occurred.');
     } finally {
       setIsLoading(false);
     }
@@ -1122,6 +1032,15 @@ const VerifierPage = () => {
 
   return (
     React.createElement('div', { className: "container mx-auto" },
+      React.createElement('div', { className: "bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 mb-6 rounded-md shadow", role: "alert" },
+          React.createElement('div', { className: "flex" },
+            React.createElement('div', { className: "py-1" }, React.createElement(Info, { className: "h-6 w-6 text-yellow-600 mr-4" })),
+            React.createElement('div', null,
+              React.createElement('p', { className: "font-bold" }, "Demonstration Mode"),
+              React.createElement('p', { className: "text-sm" }, "OMR scanning is currently simulated. This app demonstrates the evaluation workflow, scoring, and data analytics features without requiring an AI service.")
+            )
+          )
+      ),
       React.createElement('h1', { className: "text-3xl font-bold text-slate-800 mb-6" }, "OMR Sheet Verifier"),
       React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" },
         
@@ -1650,15 +1569,16 @@ const HelpPage = () => {
                 React.createElement('li', null, "Ensure the correct answer key version is selected from the dropdown menu (e.g., 'Version A')."),
                 React.createElement('li', null, "Click the \"Evaluate Sheet\" button."),
                 React.createElement('li', null, "The results, including total score, subject scores, and a detailed answer grid, will appear on the right side of the screen.")
-              )
+              ),
+              React.createElement('p', {className: 'mt-2 italic text-sm text-slate-500'}, "Note: The OMR scanning process is simulated in this version of the application.")
             ),
             React.createElement(FAQItem, { question: "What are the best practices for OMR sheet images?" },
-              React.createElement('p', null, "For the most accurate results, please ensure your image is:"),
+              React.createElement('p', null, "For the most accurate results with a real OMR scanner, you should ensure your image is:"),
               React.createElement('ul', null,
                 React.createElement('li', null, React.createElement('strong', null, "Clear and in focus:"), " Avoid blurry images."),
                 React.createElement('li', null, React.createElement('strong', null, "Well-lit:"), " Make sure there are no strong shadows or glare covering the bubbles."),
                 React.createElement('li', null, React.createElement('strong', null, "Properly aligned:"), " The sheet should be flat and not photographed at a sharp angle."),
-                React.createElement('li', null, React.createElement('strong', null, "High-resolution:"), " A higher quality image allows the AI to better detect the marked bubbles.")
+                React.createElement('li', null, React.createElement('strong', null, "High-resolution:"), " A higher quality image allows the scanner to better detect the marked bubbles.")
               )
             ),
              React.createElement('h2', { className: "text-xl font-semibold text-slate-700 flex items-center pt-4" }, React.createElement(BarChart3, { className: "mr-2 text-indigo-600" }), "Understanding Results"),
@@ -1677,9 +1597,9 @@ const HelpPage = () => {
             React.createElement(FAQItem, { question: "Why did the evaluation fail or give an error?" },
                 React.createElement('p', null, "An evaluation can fail for a few reasons:"),
                 React.createElement('ul', null,
-                    React.createElement('li', null, React.createElement('strong', null, "Poor Image Quality:"), " This is the most common cause. If the image is blurry, skewed, or poorly lit, the AI may not be able to process it. Please try taking another picture."),
+                    React.createElement('li', null, React.createElement('strong', null, "Simulated Error:"), " The demo algorithm has a small, built-in chance of failure to mimic real-world conditions. Simply try evaluating again."),
                     React.createElement('li', null, React.createElement('strong', null, "Unsupported Format:"), " Ensure you are uploading a standard image file (like PNG, JPG, or GIF)."),
-                    React.createElement('li', null, React.createElement('strong', null, "AI Model Issue:"), " On rare occasions, the AI service may be temporarily unavailable. Please wait a moment and try again.")
+                    React.createElement('li', null, React.createElement('strong', null, "Browser Issue:"), " On rare occasions, a browser extension or setting might interfere. Try a different browser or an incognito window.")
                 )
             ),
              React.createElement(FAQItem, { question: "Why is the Dashboard or Analytics page empty?" },
